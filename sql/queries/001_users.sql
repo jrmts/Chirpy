@@ -6,7 +6,11 @@ VALUES (
     NOW(),
     $1
 )
+ON CONFLICT (email) DO NOTHING
 RETURNING *;
 
 -- name: DeleteAllUsers :exec
 DELETE FROM users;
+
+-- name: GetUserById :one
+SELECT * FROM users WHERE id = $1;
