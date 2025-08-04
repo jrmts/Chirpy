@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"sync/atomic"
 
 	"github.com/jrmts/Chrispy/internal/api"
@@ -18,6 +19,7 @@ import (
 )
 
 func main() {
+	log.Println("Go version:", runtime.Version())
 	godotenv.Load()
 	platform := os.Getenv("PLATFORM")
 	dbURL := os.Getenv("DB_URL")
@@ -54,8 +56,12 @@ func main() {
 
 	mux.HandleFunc("POST /api/chirps", apiConfiguration.Chirps)
 	mux.HandleFunc("GET /api/chirps", apiConfiguration.GetChirps)
+	mux.HandleFunc("GET /api/chirps/{id}", apiConfiguration.GetChirpByID)
 
 	mux.HandleFunc("POST /api/users", apiConfiguration.CreateUser)
+	mux.HandleFunc("POST /api/login", apiConfiguration.LoginUser)
+
+	// mux.HandleFunc("POST /api/login", apiConfiguration.UserLogin)
 
 	server := &http.Server{
 		Addr:    ":" + *port,

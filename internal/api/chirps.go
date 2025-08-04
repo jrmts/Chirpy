@@ -107,3 +107,35 @@ func (config *APIConfig) GetChirps(writer http.ResponseWriter, request *http.Req
 	log.Printf("Chirps retrieved successfully: %v", chirps)
 	respondWithJSON(writer, http.StatusOK, chirps)
 }
+
+func (config *APIConfig) GetChirpByID(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodGet {
+		respondWithError(writer, http.StatusMethodNotAllowed, "Must be a GET request")
+		return
+	}
+	chirpID := request.PathValue("id")
+	if chirpID == "" {
+		respondWithError(writer, http.StatusBadRequest, "Chirp ID required")
+		return
+	}
+	id, err := uuid.Parse(chirpID)
+	if err != nil {
+		respondWithError(writer, http.StatusBadRequest, "Invalid Chirp ID format")
+		return
+	}
+	dbChirp, err := config.Queries.GetChirpByID(context.Background(), id)
+	if err != nil {
+		log.Printf("Failed to get chirp by ID: %v", err)
+		respondWithError(writer, http.StatusNotFound, fmt.Sprintf("Failed to get chirp by ID: %v", err))
+		return
+	}
+	chirp := Chirp{
+		ID:        dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		UserID:    dbChirp.UserID,
+		Body:      dbChirp.Body,
+	}
+	log.Printf("Chirp recieved successfully: %v", chirp)
+	respondWithJSON(writer, http.StatusOK, chirp)
+}
