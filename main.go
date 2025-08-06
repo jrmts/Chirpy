@@ -23,6 +23,7 @@ func main() {
 	godotenv.Load()
 	platform := os.Getenv("PLATFORM")
 	dbURL := os.Getenv("DB_URL")
+	secretKey := os.Getenv("SECRET_KEY")
 	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		log.Fatal("cannot connect to database: ", err)
@@ -32,6 +33,7 @@ func main() {
 		FileserverHits: atomic.Int32{},
 		Queries:        dbQueries,
 		Platform:       platform,
+		SecretKey:      secretKey,
 	}
 
 	// const port = "8080"
@@ -60,8 +62,8 @@ func main() {
 
 	mux.HandleFunc("POST /api/users", apiConfiguration.CreateUser)
 	mux.HandleFunc("POST /api/login", apiConfiguration.LoginUser)
-
-	// mux.HandleFunc("POST /api/login", apiConfiguration.UserLogin)
+	mux.HandleFunc("POST /api/refresh", apiConfiguration.RefreshToken)
+	mux.HandleFunc("POST /api/revoke", apiConfiguration.RevokeToken)
 
 	server := &http.Server{
 		Addr:    ":" + *port,

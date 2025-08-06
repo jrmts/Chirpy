@@ -12,6 +12,7 @@ type APIConfig struct {
 	FileserverHits atomic.Int32
 	Queries        *database.Queries
 	Platform       string
+	SecretKey      string
 }
 
 type User struct {
@@ -21,6 +22,9 @@ type User struct {
 	Email          string    `json:"email"`
 	HashedPassword string    `json:"-"`
 	Password       string    `json:"password"`
+	// ExpiresAt      time.Time `json:"expires_at,omitempty"`
+	Token        string `json:"token,omitempty"`
+	RefreshToken string `json:"refresh_token,omitempty"`
 }
 
 type Chirp struct {

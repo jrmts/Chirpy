@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/google/uuid"
+	"github.com/jrmts/Chrispy/internal/auth"
 	"github.com/jrmts/Chrispy/internal/database"
 )
 
@@ -16,17 +17,30 @@ import (
 //	is was called validateChirp, but it was not used in the latest code
 func (config *APIConfig) Chirps(writer http.ResponseWriter, request *http.Request) {
 	type ChirpRequest struct {
-		Body   string `json:"body"`
-		UserId string `json:"user_id"`
+		Body string `json:"body"`
+		// UserId string `json:"user_id"`
 	}
 	if request.Method != http.MethodPost {
 		respondWithError(writer, http.StatusMethodNotAllowed, "Chirp must be a POST request")
 		return
 	}
 
+	token, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		respondWithError(writer, http.StatusUnauthorized, "Invalid or missing token")
+		return
+	}
+
+	userID, err := auth.ValidateJWT(token, config.SecretKey)
+	if err != nil {
+		log.Printf("Failed to vallidate token: %v", err)
+		respondWithError(writer, http.StatusUnauthorized, "Invalid token")
+		return
+	}
+
 	decoder := json.NewDecoder(request.Body)
 	var chirpRequest ChirpRequest
-	err := decoder.Decode(&chirpRequest)
+	err = decoder.Decode(&chirpRequest)
 	if err != nil {
 		respondWithError(writer, http.StatusBadRequest, "Chirp must be a valid JSON object")
 		return
@@ -38,27 +52,27 @@ func (config *APIConfig) Chirps(writer http.ResponseWriter, request *http.Reques
 	}
 
 	// save the chirp to the database
-	userId, err := uuid.Parse(chirpRequest.UserId)
-	if err != nil {
-		respondWithError(writer, http.StatusBadRequest, "Invalid user_id format")
-		return
-	}
-	if userId != uuid.Nil {
-		_, err = config.Queries.GetUserById(context.Background(), userId)
+	// userId, err := uuid.Parse(chirpRequest.UserId)
+	// if err != nil {
+	// 	respondWithError(writer, http.StatusBadRequest, "Invalid user_id format")
+	// 	return
+	// }
+	if userID != uuid.Nil {
+		_, err = config.Queries.GetUserById(context.Background(), userID)
 		if err != nil {
 			respondWithError(writer, http.StatusBadRequest, "User does not exist")
 			return
 		}
 	}
 
-	_, err = config.Queries.GetUserById(context.Background(), userId)
+	_, err = config.Queries.GetUserById(context.Background(), userID)
 	if err != nil {
 		respondWithError(writer, http.StatusBadRequest, "User does not exist")
 		return
 	}
 
 	dbChirp, err := config.Queries.CreateChirp(context.Background(), database.CreateChirpParams{
-		UserID: userId,
+		UserID: userID,
 		Body:   badWordReplace(chirpRequest.Body), //chirpRequest.Body,
 	})
 	if err != nil {

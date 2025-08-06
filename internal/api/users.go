@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/jrmts/Chrispy/internal/auth"
 	"github.com/jrmts/Chrispy/internal/database"
@@ -75,6 +76,13 @@ func (config *APIConfig) LoginUser(writer http.ResponseWriter, request *http.Req
 		respondWithError(writer, http.StatusUnauthorized, "Email and password are required")
 		return
 	}
+	// if user.ExpiresAt == 0 {
+	// 	user.ExpiresAt = 60 * 60 // Set default expiration to 1 hour
+	// } else if user.ExpiresAt > 60*60 {
+	// 	user.ExpiresAt = 60 * 60 // Ensure expiration is not more than 1 hour
+	// }
+	// user.ExpiresAt = time.Now().Add(1 * time.Hour)
+
 	dbUser, err := config.Queries.GetUserByEmail(context.Background(), user.Email)
 	if err != nil {
 		log.Printf("Failed to get user by email: %v", err)
@@ -90,11 +98,135 @@ func (config *APIConfig) LoginUser(writer http.ResponseWriter, request *http.Req
 		return
 	}
 
-	respondWithJSON(writer, http.StatusOK, User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
+	token, err := auth.MakeJWT(dbUser.ID, config.SecretKey, 1*time.Hour)
+	if err != nil {
+		log.Printf("Failed to create JWT: %v", err)
+		respondWithError(writer, http.StatusInternalServerError, "Failed to create JWT")
+		return
+	}
+
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		log.Printf("Failed to create refresh token: %v", err)
+		respondWithError(writer, http.StatusInternalServerError, "Failed to create refresh token")
+		return
+	}
+
+	dbRefreshToken := database.RefreshToken{
+		Token:     refreshToken,
+		UserID:    dbUser.ID,
+		CreatedAt: time.Now(),
+		UpdatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(60 * 24 * time.Hour),
+		// RevokedAt: time.Time{}, // zero value means not revoked
+	}
+	_, err = config.Queries.CreateRefreshToken(context.Background(), database.CreateRefreshTokenParams{
+		Token:     dbRefreshToken.Token,
+		UserID:    dbRefreshToken.UserID,
+		CreatedAt: dbRefreshToken.CreatedAt,
+		UpdatedAt: dbRefreshToken.UpdatedAt,
+		ExpiresAt: dbRefreshToken.ExpiresAt,
+		// RevokedAt: time.Time{},
 	})
+	if err != nil {
+		log.Printf("Failed to create refresh token in database: %v", err)
+		respondWithError(writer, http.StatusInternalServerError, "Failed to create refresh token in database")
+		return
+	}
+
+	respondWithJSON(writer, http.StatusOK, User{
+		ID:           dbUser.ID,
+		CreatedAt:    dbUser.CreatedAt,
+		UpdatedAt:    dbUser.UpdatedAt,
+		Email:        dbUser.Email,
+		Token:        token,
+		RefreshToken: refreshToken,
+	})
+
+}
+
+func (config *APIConfig) RefreshToken(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		respondWithError(writer, http.StatusBadRequest, "Only POST method is allowed")
+		return
+	}
+
+	token, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		respondWithError(writer, http.StatusUnauthorized, "Invalid or missing token")
+		return
+	}
+	refreshToken, err := config.Queries.GetRefreshToken(context.Background(), token)
+	if err != nil || refreshToken.RevokedAt.Valid {
+		log.Printf("Failed to get refresh token: %v", err)
+		respondWithError(writer, http.StatusUnauthorized, "Failed to get refresh token - Invalid or missing refresh token")
+		return
+	}
+	// newRefreshToken, err := auth.MakeRefreshToken()
+	// if err != nil {
+	// 	log.Printf("Failed to create refresh token: %v", err)
+	// 	respondWithError(writer, http.StatusInternalServerError, "Failed to create refresh token")
+	// 	return
+	// }
+	// Update the existing refresh token in the database
+	userUUID, err := config.Queries.GetUserFromRefreshToken(context.Background(), refreshToken.Token)
+	if err != nil {
+		log.Printf("Failed to get user from refresh token: %v", err)
+		respondWithError(writer, http.StatusInternalServerError, "Failed to get user from refresh token")
+		return
+	}
+	// _, err = config.Queries.CreateRefreshToken(context.Background(), database.CreateRefreshTokenParams{
+	// 	Token:     newRefreshToken,
+	// 	UserID:    userUUID,
+	// 	CreatedAt: time.Now(),
+	// 	UpdatedAt: time.Now(),
+	// 	ExpiresAt: time.Now().Add(60 * 24 * time.Hour),
+	// })
+	// if err != nil {
+	// 	log.Printf("Failed to create new refresh token in database: %v", err)
+	// 	respondWithError(writer, http.StatusInternalServerError, "Failed to create new refresh token in database")
+	// 	return
+	// }
+
+	newAccessToken, err := auth.MakeJWT(userUUID, config.SecretKey, 1*time.Hour)
+	if err != nil {
+		log.Printf("Failed to create new access token: %v", err)
+		respondWithError(writer, http.StatusInternalServerError, "Failed to create new access token")
+		return
+	}
+
+	respondWithJSON(writer, http.StatusOK, map[string]string{
+		"token": newAccessToken})
+}
+
+func (config *APIConfig) RevokeToken(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodPost {
+		respondWithError(writer, http.StatusBadRequest, "Only POST method is allowed")
+		return
+	}
+
+	token, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		log.Printf("Invalid or missing token: %v", err)
+		respondWithError(writer, http.StatusUnauthorized, "Invalid or missing token")
+		return
+	}
+
+	// refreshTokenToRevoke, err := config.Queries.GetRefreshToken(context.Background(), token)
+	// if err != nil {
+	// 	log.Printf("Failed to get refresh token: %v", err)
+	// 	respondWithError(writer, http.StatusUnauthorized, "Invalid or missing refresh token")
+	// 	return
+	// }
+
+	err = config.Queries.RevokeRefreshToken(context.Background(), token) // refreshTokenToRevoke.Token)
+	if err != nil {
+		log.Printf("Failed to revoke refresh token: %v", err)
+		respondWithError(writer, http.StatusInternalServerError, "Failed to revoke refresh token")
+		return
+	}
+
+	// respondWithJSON(writer, http.StatusNoContent, ) //"Refresh token revoked successfully")
+	writer.WriteHeader(http.StatusNoContent)
 
 }
