@@ -13,6 +13,7 @@ type APIConfig struct {
 	Queries        *database.Queries
 	Platform       string
 	SecretKey      string
+	PolkaKey       string
 }
 
 type User struct {
@@ -25,6 +26,7 @@ type User struct {
 	// ExpiresAt      time.Time `json:"expires_at,omitempty"`
 	Token        string `json:"token,omitempty"`
 	RefreshToken string `json:"refresh_token,omitempty"`
+	IsChirpyRed  bool   `json:"is_chirpy_red"`
 }
 
 type Chirp struct {

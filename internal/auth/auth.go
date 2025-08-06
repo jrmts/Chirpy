@@ -102,3 +102,18 @@ func MakeRefreshToken() (string, error) {
 	tokenHexString := hex.EncodeToString(token)
 	return tokenHexString, nil
 }
+
+func GetAPIKey(headers http.Header) (string, error) {
+	authHeader := headers.Get("Authorization")
+	if authHeader == "" {
+		return "", fmt.Errorf("missing Authorization header")
+	}
+	parts := strings.Split(authHeader, " ")
+	if len(parts) != 2 || parts[0] != "ApiKey" {
+		return "", fmt.Errorf("invalid POLKA Authorization header format, expected 'ApiKey <token>'")
+	}
+
+	apiKey := parts[1]
+
+	return apiKey, nil
+}

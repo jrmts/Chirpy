@@ -122,6 +122,7 @@ func (config *APIConfig) GetChirps(writer http.ResponseWriter, request *http.Req
 	respondWithJSON(writer, http.StatusOK, chirps)
 }
 
+// GetChirpByID retrieves a chirp by its ID.
 func (config *APIConfig) GetChirpByID(writer http.ResponseWriter, request *http.Request) {
 	if request.Method != http.MethodGet {
 		respondWithError(writer, http.StatusMethodNotAllowed, "Must be a GET request")
@@ -152,4 +153,96 @@ func (config *APIConfig) GetChirpByID(writer http.ResponseWriter, request *http.
 	}
 	log.Printf("Chirp recieved successfully: %v", chirp)
 	respondWithJSON(writer, http.StatusOK, chirp)
+}
+
+func (config *APIConfig) DeleteOneChirp(writer http.ResponseWriter, request *http.Request) {
+	if request.Method != http.MethodDelete {
+		respondWithError(writer, http.StatusMethodNotAllowed, "Chirp must be a DELETE request")
+		return
+	}
+
+	requestUserToken, err := auth.GetBearerToken(request.Header)
+	if err != nil {
+		respondWithError(writer, http.StatusUnauthorized, "Invalid or missing token")
+		return
+	}
+
+	requestUserUUID, err := auth.ValidateJWT(requestUserToken, config.SecretKey)
+	if err != nil {
+		log.Printf("Failed to validate JWT: %v", err)
+		respondWithError(writer, http.StatusUnauthorized, "Invalid token")
+		return
+	}
+
+	id := request.PathValue("id")
+	if id == "" {
+		respondWithError(writer, http.StatusBadRequest, "Chirp ID required")
+		return
+	}
+	chirpToDeleteID, err := uuid.Parse(id)
+	// if chirpToDeleteID == uuid.Nil {
+	// 	respondWithError(writer, http.StatusBadRequest, "Invalid Chirp ID format")
+	// 	return
+	// }
+	if err != nil {
+		respondWithError(writer, http.StatusBadRequest, "Failed to parse Chirp ID")
+		return
+	}
+
+	// var chirp Chirp
+	chirp, err := config.Queries.GetChirpByID(context.Background(), chirpToDeleteID)
+	if err != nil {
+		log.Printf("Failed to get chirp by ID: %v", err)
+		respondWithError(writer, http.StatusNotFound, fmt.Sprintf("Chirp not found: %v", err))
+		return
+	}
+
+	userChirpOwner, err := config.Queries.GetUserById(context.Background(), chirp.UserID)
+	if err != nil {
+		log.Printf("Failed to get user by ID: %v", err)
+		respondWithError(writer, http.StatusNotFound, fmt.Sprintf("User not found: %v", err))
+		return
+	}
+	userRequestOwner, err := config.Queries.GetUserById(context.Background(), requestUserUUID)
+	if err != nil {
+		log.Printf("Failed to get user by ID: %v", err)
+		respondWithError(writer, http.StatusNotFound, fmt.Sprintf("User not found: %v", err))
+		return
+	}
+
+	// Check if the user making the request is the owner of the chirp
+	if userRequestOwner.ID != userChirpOwner.ID {
+		log.Printf("User %v is not authorized to delete chirp %v", userRequestOwner.ID, chirpToDeleteID)
+		respondWithError(writer, http.StatusForbidden, "You are not authorized to delete this chirp")
+		return
+	}
+
+	// chirpOwnerUUID := chirp.UserID
+	// // if chirpOwnerUUID == uuid.Nil {
+	// // 	log.Printf("Chirp %v does not have a valid user ID", chirpToDeleteID)
+	// // 	respondWithError(writer, http.StatusNotFound, "Chirp does not have a valid user ID")
+	// // 	return
+	// // }
+
+	// userChirpOwner, err := config.Queries.GetUserById(context.Background(), chirpOwnerUUID)
+	// if err != nil {
+	// 	log.Printf("Failed to get user by ID: %v", err)
+	// 	respondWithError(writer, http.StatusNotFound, fmt.Sprintf("User not found: %v", err))
+	// 	return
+	// }
+
+	// if chirpOwnerUUID != userChirpOwner.ID || requestUserUUID != userChirpOwner.ID {
+	// 	log.Printf("User %v is not authorized to delete chirp %v", requestUserUUID, chirpToDeleteID)
+	// 	respondWithError(writer, http.StatusForbidden, "You are not authorized to delete this chirp")
+	// 	return
+	// }
+	err = config.Queries.DeleteOneChirps(context.Background(), chirpToDeleteID)
+	if err != nil {
+		log.Printf("Failed to delete chirp: %v", err)
+		respondWithError(writer, http.StatusInternalServerError, "Failed to delete chirp.")
+		return
+	}
+	log.Printf("Chirp %v deleted successfully by user %v", chirpToDeleteID, requestUserUUID)
+	writer.WriteHeader(http.StatusNoContent) // No content response
+
 }
