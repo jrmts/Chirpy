@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 
 	"github.com/google/uuid"
 	"github.com/jrmts/Chrispy/internal/auth"
@@ -95,31 +96,110 @@ func (config *APIConfig) Chirps(writer http.ResponseWriter, request *http.Reques
 
 // get chirps retrieves all chirps for a user.
 func (config *APIConfig) GetChirps(writer http.ResponseWriter, request *http.Request) {
+	// type ChirpRequest struct {
+	// 	// Body     string `json:"body"`
+	// 	AuthorID string `json:"author_id,omitempty"` // Optional field for author ID
+	// 	// UserId string `json:"user_id"`
+	// }
+
 	if request.Method != http.MethodGet {
 		respondWithError(writer, http.StatusMethodNotAllowed, "Chirps must be a GET request")
 		return
 	}
 
-	dbChirps, err := config.Queries.GetAllChirps(context.Background())
-	if err != nil {
-		log.Printf("Failed to get chirps: %v", err)
-		respondWithError(writer, http.StatusInternalServerError, fmt.Sprintf("Failed to get chirps: %v", err))
-		return
-	}
-	// Convert sliceOfChirps to a slice of Chirp structs
-	var chirps []Chirp
-	for _, dbChirp := range dbChirps {
-		chirp := Chirp{
-			ID:        dbChirp.ID,
-			UserID:    dbChirp.UserID,
-			Body:      dbChirp.Body,
-			CreatedAt: dbChirp.CreatedAt,
-			UpdatedAt: dbChirp.UpdatedAt,
+	// decoder := json.NewDecoder(request.Body)
+	// var chirpRequestWithAuthor ChirpRequest
+	// err := decoder.Decode(&chirpRequestWithAuthor)
+	// if err != nil {
+	// 	respondWithError(writer, http.StatusBadRequest, "Chirp must be a valid JSON object")
+	// 	return
+	// }
+
+	//s := r.URL.Query().Get("author_id")
+	authorID := request.URL.Query().Get("author_id")
+	sortOrder := request.URL.Query().Get("sort")
+
+	if authorID != "" {
+		authorID, err := uuid.Parse(authorID)
+		if err != nil {
+			respondWithError(writer, http.StatusBadRequest, "Invalid author_id format")
+			return
 		}
-		chirps = append(chirps, chirp)
+
+		// Check if the author exists
+		_, err = config.Queries.GetUserById(context.Background(), authorID)
+		if err != nil {
+			respondWithError(writer, http.StatusBadRequest, "Author does not exist")
+			return
+		}
+
+		dbChirps, err := config.Queries.GetChirpByAuthorID(context.Background(), authorID)
+		if err != nil {
+			log.Printf("Failed to get chirps by author ID: %v", err)
+			respondWithError(writer, http.StatusInternalServerError, fmt.Sprintf("Failed to get chirps by author ID: %v", err))
+			return
+		}
+		var chirps []Chirp
+		for _, dbChirp := range dbChirps {
+			chirp := Chirp{
+				ID:        dbChirp.ID,
+				UserID:    dbChirp.UserID,
+				Body:      dbChirp.Body,
+				CreatedAt: dbChirp.CreatedAt,
+				UpdatedAt: dbChirp.UpdatedAt,
+			}
+			chirps = append(chirps, chirp)
+		}
+		log.Printf("Chirps retrieved successfully: %v", chirps)
+		if sortOrder == "asc" || sortOrder == "" {
+			sort.Slice(chirps, func(i, j int) bool {
+				return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+				//a[i].CreatedAt.Before(a[j].CreatedAt)
+			})
+		}
+		if sortOrder == "desc" {
+			sort.Slice(chirps, func(i, j int) bool {
+				return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+				//a[i].CreatedAt.After(a[j].CreatedAt)
+			})
+		}
+		respondWithJSON(writer, http.StatusOK, chirps)
+	} else {
+		// If no author ID is provided, get all chirps
+
+		dbChirps, err := config.Queries.GetAllChirps(context.Background())
+		if err != nil {
+			log.Printf("Failed to get chirps: %v", err)
+			respondWithError(writer, http.StatusInternalServerError, fmt.Sprintf("Failed to get chirps: %v", err))
+			return
+		}
+		// Convert sliceOfChirps to a slice of Chirp structs
+		var chirps []Chirp
+		for _, dbChirp := range dbChirps {
+			chirp := Chirp{
+				ID:        dbChirp.ID,
+				UserID:    dbChirp.UserID,
+				Body:      dbChirp.Body,
+				CreatedAt: dbChirp.CreatedAt,
+				UpdatedAt: dbChirp.UpdatedAt,
+			}
+			chirps = append(chirps, chirp)
+		}
+		if sortOrder == "asc" || sortOrder == "" {
+			sort.Slice(chirps, func(i, j int) bool {
+				return chirps[i].CreatedAt.Before(chirps[j].CreatedAt)
+				//a[i].CreatedAt.Before(a[j].CreatedAt)
+			})
+		}
+		if sortOrder == "desc" {
+			sort.Slice(chirps, func(i, j int) bool {
+				return chirps[i].CreatedAt.After(chirps[j].CreatedAt)
+				//a[i].CreatedAt.After(a[j].CreatedAt)
+			})
+		}
+		log.Printf("Chirps retrieved successfully: %v", chirps)
+		respondWithJSON(writer, http.StatusOK, chirps)
 	}
-	log.Printf("Chirps retrieved successfully: %v", chirps)
-	respondWithJSON(writer, http.StatusOK, chirps)
 }
 
 // GetChirpByID retrieves a chirp by its ID.
